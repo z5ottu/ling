@@ -33,8 +33,7 @@
 
 #pragma once
 
-#include "lwip/ip_addr.h"
-#include "lwip/netif.h"
+#include "sockaddr.h"
 
 void netif_setup(ip_addr_t *ip_addr,
 				 ip_addr_t *net_mask,

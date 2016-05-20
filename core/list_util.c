@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "list_util.h"
 
 #include "ling_common.h"
@@ -297,9 +293,9 @@ void bits_list_flatten(term_t l, bits_t *bs)
 			term_t e = term_data[0];
 			if (is_int(e))
 			{
-				uint8_t o = int_value(e);
+				int o = int_value(e);
 				assert(o >= 0 && o < 256);
-				bits_put_octet(bs, o);
+				bits_put_octet(bs, (uint8_t)o);
 			}
 			else
 			{

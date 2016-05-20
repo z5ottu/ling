@@ -56,7 +56,6 @@
 		fatal_error("bad subtag"); \
 	} while (0)
 
-
 uint32_t *__expand_ptr(uint32_t n)
 {
 #if defined(__x86_64__)
@@ -238,6 +237,26 @@ void __box_export(uint32_t **p, export_t *e)
 	((t_export_t *)(*p))->hdr = HDR_IS_NOT_CP | SUBTAG_EXPORT;
 	((t_export_t *)(*p))->e = e;
 	(*p) += WSIZE(t_export_t);
+}
+
+void __box_map(uint32_t **p, uint32_t size, term_t keys)
+{
+	assert(*p != 0);
+	ALIGNED_PTR(*p);
+	assert(is_tuple(keys));
+	assert(*peel_tuple(keys) == size);
+
+	((t_map_t *)(*p))->hdr = HDR_IS_NOT_CP | (size << 4) | SUBTAG_MAP;
+	((t_map_t *)(*p))->keys = keys;
+	(*p) += WSIZE(t_map_t) + size;
+}
+
+uint32_t __map_size(uint32_t *p)
+{
+	assert(p != 0);
+	ALIGNED_PTR(p);
+	assert(boxed_tag(p) == SUBTAG_MAP);
+	return (((t_map_t *)p)->hdr >> 4) & 0x7ffffff;
 }
 
 void __box_proc_bin(uint32_t **p, uint32_t size, binnode_t *node)

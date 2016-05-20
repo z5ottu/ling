@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "bif_impl.h"
 
 double strtod(const char *str, char **endptr);
@@ -219,6 +215,18 @@ term_t bif_or2(term_t A, term_t B, proc_t *proc)
 	return A_FALSE;
 }
 
+term_t bif_xor2(term_t A, term_t B, proc_t *proc)
+{
+	if (!is_bool(A))
+		badarg(A);
+	if (!is_bool(B))
+		badarg(B);
+	if ((A == A_TRUE) ^ (B == A_TRUE))
+		return A_TRUE;
+
+	return A_FALSE;
+}
+
 term_t bif_not1(term_t Term, proc_t *proc)
 {
 	//TODO: should this be an instruction?
@@ -334,6 +342,14 @@ term_t bif_tuple_size1(term_t Tuple, proc_t *proc)
 		badarg(Tuple);
 	int arity = *peel_tuple(Tuple);
 	return int_to_term(arity, &proc->hp);
+}
+
+term_t bif_map_size1(term_t Map, proc_t *proc)
+{
+	if (!is_boxed_map(Map))
+		badarg(Map);
+	int size = map_size(peel_boxed(Map));
+	return int_to_term(size, &proc->hp);
 }
 
 term_t gc_bif_byte_size1(term_t Bin, proc_t *proc, term_t *regs, int live)
@@ -467,7 +483,7 @@ term_t cbif_pid_to_list1(proc_t *proc, term_t *regs)
 	term_t Pid = regs[0];
 	if (is_short_pid(Pid))
 	{
-		snprintf(buf, sizeof(buf), "<0.%d.0>", short_pid_id(Pid));
+		snprintf(buf, sizeof(buf), "<0.%d.0>", (int)short_pid_id(Pid));
 		return heap_strz(&proc->hp, buf);
 	}
 	else if (is_boxed(Pid))
@@ -477,8 +493,8 @@ term_t cbif_pid_to_list1(proc_t *proc, term_t *regs)
 		{
 			t_long_pid_t *p = (t_long_pid_t *)pdata;
 			snprintf(buf, sizeof(buf), "<%pt.%d.%d.%d>",
-					T(p->node), opr_hdr_id(pdata),
-				   	p->serial, opr_hdr_creat(pdata));
+					T(p->node), (int)opr_hdr_id(pdata),
+				   	(int)p->serial, (int)opr_hdr_creat(pdata));
 			return heap_strz(&proc->hp, buf);
 		}
 	}
@@ -685,7 +701,8 @@ term_t cbif_binary_to_list1(proc_t *proc, term_t *regs)
 		badarg(Bin);
 
 	int size = (bs.ends - bs.starts) /8;
-	uint32_t *htop = proc_burn_fat(proc, size*2, regs, 1);
+	//uint32_t *htop = proc_burn_fat(proc, size*2, regs, 1);
+	uint32_t *htop = heap_alloc(&proc->hp, size*2);
 
 	// reload after gc
 	Bin = regs[0];
@@ -742,7 +759,8 @@ term_t cbif_binary_to_list3(proc_t *proc, term_t *regs)
 		badarg(Stop);
 
 	int size = end -beg +1;
-	uint32_t *htop = proc_burn_fat(proc, size*2, regs, 3);
+	//uint32_t *htop = proc_burn_fat(proc, size*2, regs, 3);
+	uint32_t *htop = heap_alloc(&proc->hp, size*2);
 
 	// reload after gc
 	Bin = regs[0];
@@ -781,7 +799,8 @@ term_t cbif_bitstring_to_list1(proc_t *proc, term_t *regs)
 	int needed = 2*size;
 	if (((bs.ends - bs.starts) & 7) != 0)
 		needed += WSIZE(t_sub_bin_t) +2; // +2 for the last cons
-	uint32_t *htop = proc_burn_fat(proc, needed, regs, 1);
+	//uint32_t *htop = proc_burn_fat(proc, needed, regs, 1);
+	uint32_t *htop = heap_alloc(&proc->hp, needed);
 
 	// reload after gc
 	Bin = regs[0];
@@ -1279,7 +1298,6 @@ term_t cbif_plusplus2(proc_t *proc, term_t *regs)
 		badarg(As);	// the first list can not be odd
 
 	//TODO: unbounded alloc, use proc_burn_fat()
-	//
 	uint32_t *htop = heap_alloc(&proc->hp, len*2);
 	term_t result = tag_cons(htop);
 
@@ -1343,7 +1361,7 @@ term_t cbif_minusminus2(proc_t *proc, term_t *regs)
 	term_t *acons = peel_cons(As);
 	term_t res_r = nil;
 
-	//TODO: semi-unbounded alloc, use proc_burn_fat()
+	//TODO: semi-unbounded alloc, use proc_burn_fat()?
 	//
 	do {
 		int copy = 1;
@@ -1458,7 +1476,7 @@ term_t cbif_make_tuple2(proc_t *proc, term_t *regs)
 		badarg(N);
 
 	int arity = int_value(N);
-	if (arity < 0)
+	if (arity < 0 || arity > MAX_TUPLE_ARITY)
 		badarg(N);
 	if (arity == 0)
 		return ZERO_TUPLE;
@@ -1486,7 +1504,7 @@ term_t cbif_make_tuple3(proc_t *proc, term_t *regs)
 		badarg(DefList);
 
 	int arity = int_value(N);
-	if (arity < 0)
+	if (arity < 0 || arity > MAX_TUPLE_ARITY)
 		badarg(N);
 	if (arity == 0 && DefList != nil)
 		badarg(DefList);

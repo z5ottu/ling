@@ -387,7 +387,7 @@ validate({call_ext_only,[{a,_},{a,_},U]}) when ?U(U) -> ok;
 validate({call_fun,[U]}) when ?U(U) -> ok;
 validate({call_last,[U1,{f,_},U2]}) when ?U(U1), ?U(U2) -> ok;
 validate({call_only,[U,{f,_}]}) when ?U(U) -> ok;
-validate({case_end,[D]}) -> dst(D);
+validate({case_end,[D]}) -> src(D);
 validate({'catch',[{y,_},{f,_}]}) -> ok;
 validate({catch_end,[{y,_}]}) -> ok;
 validate({deallocate,[U]}) when ?U(U) -> ok;
@@ -464,6 +464,12 @@ validate({try_case_end,[{x,_}]}) -> ok;
 validate({try_end,[{y,_}]}) -> ok;
 validate({wait,[{f,_}]}) -> ok;
 validate({wait_timeout,[{f,_},S]}) -> src(S);
+
+validate({is_map,[{f,_},S]}) -> src(S);
+validate({put_map_assoc,[{f,_},S,D,_Live,{list,_}]}) -> src(S), dst(D);
+validate({put_map_exact,[{f,_},S,D,_Live,{list,_}]}) -> src(S), dst(D);
+validate({get_map_elements,[{f,_},S,{list,_}]}) -> src(S);
+validate({has_map_fields,[{f,_},S,{list,_}]}) -> src(S);
 
 validate({line,_}) -> ok;
 

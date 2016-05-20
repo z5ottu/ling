@@ -14,6 +14,8 @@
 #include "string.h"
 #include "ctype.h"
 
+#define MP_LOGTAB	1
+
 /* 
    If MP_LOGTAB is not defined, use the math library to compute the
    logarithms on the fly.  Otherwise, use the static table below.
@@ -927,6 +929,7 @@ mp_err mp_sub(heap_t *hp, mp_int *a, mp_int *b, mp_int *c)
     }
 
   } else if(cmp == 0) {  /* Same sign, equal magnitude */
+    s_mp_pad(hp, c, 1); // heal crippled bogo_bignum (see its definition in bignum.c)
     mp_zero(c);
     return MP_OKAY;
 
@@ -3098,7 +3101,7 @@ int      s_mp_tovalue(char ch, int r)
   if(r > 36)
     xch = ch;
   else
-    xch = toupper(ch);
+    xch = toupper((int)ch);
 
   if(isdigit(xch))
     val = xch - '0';
@@ -3143,7 +3146,7 @@ char     s_mp_todigit(int val, int r, int low)
   ch = s_dmap_1[val];
 
   if(r <= 36 && low)
-    ch = tolower(ch);
+    ch = tolower((int)ch);
 
   return ch;
 
@@ -3162,7 +3165,6 @@ char     s_mp_todigit(int val, int r, int low)
 int      s_mp_outlen(int bits, int r)
 {
   return (int)((double)bits * LOG_V_2(r) + 0.5);
-
 } /* end s_mp_outlen() */
 
 /* }}} */

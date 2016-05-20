@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "outlet.h"
 
 #include "ling_common.h"
@@ -91,7 +87,7 @@ static term_t ol_vif_control(outlet_t *ol,
 	char rbuf[64];
 	char *reply = rbuf;
 
-	printk("vif: op %d dlen %d\n", op, dlen);
+	//printk("vif: op %d dlen %d\n", op, dlen);
 	switch (op)
 	{
 	case VIF_REQ_OPEN:
@@ -104,6 +100,22 @@ static term_t ol_vif_control(outlet_t *ol,
 			goto error;
 		ol->front_end = attach_to;
 		netfe_attach_outlet(attach_to, ol);
+		*reply++ = VIF_REP_OK;
+		break;
+	}
+	
+	case VIF_REQ_SETOPTS:
+	{
+		if (dlen != 1 +4)
+			goto error;
+		int opt = data[0];
+		if (opt == VIF_OPT_MAX_MQ_LEN)
+		{
+			int max_mq_len = GET_UINT_32(data +1);
+			ol->max_mq_len = max_mq_len;
+		}
+		else
+			goto error;
 		*reply++ = VIF_REP_OK;
 		break;
 	}
@@ -143,4 +155,3 @@ static void ol_vif_detach(outlet_t *ol)
 	ol->front_end = 0;
 }
 
-//EOF

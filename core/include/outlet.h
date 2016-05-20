@@ -33,14 +33,15 @@
 
 #pragma once
 
-//
-//
-//
-
 #include "term.h"
 #include "proc.h"
 
 #include "netfe.h"
+
+#if LING_WITH_LIBUV
+# include <uv.h>
+# include "sockaddr.h"
+#endif
 
 #define PB_DEFAULT		3
 
@@ -58,7 +59,11 @@
 #define PB_VALUE(bits, off, sz) \
 	(((bits) >> (off)) & ((1 << (sz)) -1))
 
+
+#ifndef OUTLET_DEFINED
 typedef struct outlet_t outlet_t;
+#define OUTLET_DEFINED 1
+#endif
 
 typedef struct outlet_vtab_t outlet_vtab_t;
 struct outlet_vtab_t {
@@ -74,18 +79,24 @@ struct outlet_vtab_t {
 typedef struct acc_pend_t acc_pend_t;
 struct acc_pend_t {
 	outlet_t *outlet;
-union {
-	// an acceptor process that called gen_tcp:accept()
-	struct {
+	// an acceptor process that called gen_tcp:accept();
+	// used when acc_pend_t is in ol->accepting
 		term_t reply_to;
 		int timeout_set;
-	};
+#if LING_WITH_LIBUV
+		// a process waits for an accept request until this timer runs out:
+		uv_timer_t accept_timer;
+#endif
 	// an accepted TCP connection waiting for an accept() call
-	struct {
+	// used when acc_pend_t is in ol->accepted
+#if LING_WITH_LWIP
 		struct tcp_pcb *pcb;
 		struct pbuf *ante;
-	};
-};
+#endif
+#if LING_WITH_LIBUV
+		uv_tcp_t *tcp;
+		uv_buf_t ante;
+#endif
 	acc_pend_t *prev;
 	acc_pend_t *next;
 };
@@ -127,11 +138,23 @@ struct outlet_t {
 	// Go away silently or notify the owner with {Port,closed}
 	uint32_t notify_on_close;
 
+#if LING_WITH_LWIP
 	union {
 		struct ip_pcb *ip;
 		struct udp_pcb *udp;
 		struct tcp_pcb *tcp;
 	};
+#elif LING_WITH_LIBUV
+	union {
+		uv_udp_t *udp;
+		uv_tcp_t *tcp;
+	};
+	int raw_ifindex;        // for INET_AF_PACKET to save interface index
+	uv_timer_t conn_timer;  // udp|tcp (may be used as recv_timer
+	uv_timer_t send_timer;  // tcp
+	int family;             // INET_AF_INET | INET_AF_INET6
+	int nodelay;            // Nagle's algorithm for TCP disabled
+#endif
 
 	// More options
 	int active;				// INET_ACTIVE* | INET_PASSIVE | INET_ONCE
@@ -143,34 +166,42 @@ struct outlet_t {
 
 	// TCP - connection mode
 	int cr_in_progress;
-	term_t cr_reply_to;
 	int cr_timeout_set;
+	term_t cr_reply_to;
+	memnode_t *recv_buf_node;
+	uint8_t *recv_buffer;
+	uint32_t max_recv_bufsize;
+	uint32_t recv_bufsize;
+	uint32_t recv_expected_size;
+	int recv_buf_off;
+
 	int send_in_progress;
-	uint32_t max_send_bufsize;	// ol_console, ol_dns
-	uint8_t *send_buffer;		// ol_console, ol_dns
-	memnode_t *send_buf_node;
-	int send_buf_ack;
-	int send_buf_off;
-	int send_buf_left;			// ol_console, ol_dns
 	term_t send_reply_to;
 	int send_timeout_set;
 	uint32_t send_timeout;		// SO_SNDTIMEO
-	uint32_t recv_expected_size;
-	uint32_t recv_bufsize;
-	uint32_t max_recv_bufsize;
-	uint8_t *recv_buffer;
-	memnode_t *recv_buf_node;
-	int recv_buf_off;
+	memnode_t *send_buf_node;
+	uint8_t *send_buffer;		// ol_console, ol_dns
+	uint32_t max_send_bufsize;	// ol_console, ol_dns
+
+    /*
+     *  LWIP: since we can't send more than TCP_SND_BUF with one callback,
+     *    we have to keep track of remaining buffer and re-run TX again
+     *    until the initial send_buf_left is transmitted;
+     */
+	int send_buf_off;
+	int send_buf_ack;
+	int send_buf_left;			// ol_console, ol_dns
+
 	term_t empty_queue_in_progress;
 	term_t empty_queue_reply_to;
 	int peer_close_detected;
 
 	// TCP - listening mode
 	int backlog;
-	acc_pend_t *free_pends;
 	memnode_t *pend_nodes;
-	acc_pend_t *accepting;
-	acc_pend_t *accepted;
+	acc_pend_t *free_pends;     // pool of acc_pend_t nodes
+	acc_pend_t *accepting;      // list of pending accept requests from processes
+	acc_pend_t *accepted;       // list of pending accept requests from network
 
 	// Disk
 	disk_req_t *out_reqs; 
@@ -181,6 +212,16 @@ struct outlet_t {
 
 	// VIF
 	netfe_t *front_end;
+
+	// Non-standard option
+	int max_mq_len;			// maximum message queue length
+
+#if LING_XEN
+	// Tube
+	struct tube_t *tube;
+	int slots_in_progress;
+	int slots_reply_to;
+#endif
 };
 
 typedef outlet_t *(*outlet_factory_func_t)(proc_t *cont_proc, uint32_t bit_opts);
@@ -210,4 +251,3 @@ void outlet_close(outlet_t *ol, term_t reason);
 void outlet_destroy(outlet_t *ol);
 int outlet_notify_owner(outlet_t *ol, term_t what);
 
-//EOF

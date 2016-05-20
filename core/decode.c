@@ -338,7 +338,8 @@ default:
 	bs->starts = saved_starts;
 	if (packet_size != 0 && body_len > packet_size)
 	{
-		*reason = A_EMSGSIZE;
+		debug("Over-sized packet detected: body_len %d packet_size %d\n", body_len, packet_size);
+		*reason = A_INVALID;
 		return noval;
 	}
 	if (exp_len > (bs->ends -bs->starts) /8)
@@ -1086,7 +1087,7 @@ if (ch == '\r')
 
 if (ptr -buf >= sizeof(buf) || (packet_size != 0 && ptr -buf >= packet_size))
 {
-	*reason = A_EMSGSIZE;
+	*reason = A_INVALID;
 	return noval;
 }
 *ptr++ = ch;
@@ -1102,7 +1103,7 @@ case DHH_STATE_FIELD_0:
 		bookmark = ptr -1;
 		fptr = fbuf;
 		assert(uppercase);
-		*fptr++ = toupper(ch);
+		*fptr++ = toupper((int)ch);
 		uppercase = 0;
 		state = DHH_STATE_FIELD;
 	}
@@ -1146,9 +1147,9 @@ colon:
 		if (fptr -fbuf >= sizeof(fbuf))
 			state = DHH_STATE_ERROR;
 		else if (uppercase)
-			*fptr++ = toupper(ch);
+			*fptr++ = toupper((int)ch);
 		else
-			*fptr++ = tolower(ch);
+			*fptr++ = tolower((int)ch);
 
 		uppercase = (ch == '-');	// capitalize after hyphen
 	}
@@ -1302,7 +1303,7 @@ static term_t decode_tls(bits_t *bs, term_t parent,
 		exp_len = dlen +5;
 		if (packet_size != 0 && dlen > packet_size)	// magic (OTP tests)
 		{
-			*reason = A_EMSGSIZE;
+			*reason = A_INVALID;
 			return noval;
 		}
 		if (bs->ends -bs->starts < dlen *8)
@@ -1343,7 +1344,7 @@ static term_t decode_tls(bits_t *bs, term_t parent,
 		exp_len = dlen +2;
 		if (packet_size != 0 && dlen -3 > packet_size)	// magic (OTP tests)
 		{
-			*reason = A_EMSGSIZE;
+			*reason = A_INVALID;
 			return noval;
 		}
 		if (bs->ends -bs->starts < (dlen -1) *8)

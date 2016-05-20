@@ -36,11 +36,12 @@
 
 #include "arch_limits.h"
 
-#define PAGE_SHIFT	__PAGE_SHIFT
-#define PAGE_SIZE	__PAGE_SIZE
+#ifndef PAGE_SIZE
+# define PAGE_SHIFT	__PAGE_SHIFT
+# define PAGE_SIZE	__PAGE_SIZE
+#endif
 
-#define STACK_SIZE_ORDER	8
-#define STACK_SIZE	((PAGE_SIZE) << STACK_SIZE_ORDER)
+#define MAX_ROOT_REGS	65535
 
 #define BUFSIZ		4096
 #endif

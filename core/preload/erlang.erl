@@ -49,6 +49,8 @@
 -export([disconnect_node/1]).
 -export([get_cookie/0]).
 -export([min/2,max/2]).
+-export([binary_to_integer/1,binary_to_integer/2]).
+-export([integer_to_binary/1,integer_to_binary/2]).
 -export([integer_to_list/2]).
 -export([list_to_integer/1,list_to_integer/2,list_to_integer/3]).
 -export([binary_to_term/1,binary_to_term/2]).
@@ -88,9 +90,9 @@
 
 -export([atom_to_binary/2,binary_to_atom/2,binary_to_existing_atom/2]).
 
--export([crc32/1]).
+-export([crc32/1,adler32/1]).
 
--export([nif_error/1]).
+-export([nif_error/1, nif_error/2]).
 
 %% Not sure what are these. Special handling in otp.tab hints that they may be
 %% widespead.
@@ -103,9 +105,10 @@
 
 -compile({no_auto_import,[halt/2,port_command/3]}).
 
--define(LING_VER, "0.2.3").
--define(LING_COMPAT_REL, 16).
--define(LING_COMPAT_OTP_RELEASE, "R16B01").	%% do not forget to update this
+-define(LING_COMPAT_REL, 17).
+-define(LING_COMPAT_OTP_RELEASE, "17").	%% do not forget to update this
+
+-define(SLICE_REDUCTIONS, 1000).
 
 get_module_info(Module) when is_atom(Module) ->
 	Items = [exports,imports,attributes,compile],
@@ -205,6 +208,12 @@ min(_, B) -> B.
 max(A, B) when A > B -> A;
 max(_, B) -> B.
 
+binary_to_integer(Bin) -> erlang:list_to_integer(binary_to_list(Bin)).
+binary_to_integer(Bin, Base) -> erlang:list_to_integer(binary_to_list(Bin), Base). 
+
+integer_to_binary(I) -> list_to_binary(integer_to_list(I)).
+integer_to_binary(I, Base) -> list_to_binary(erlang:integer_to_list(I, Base)).
+
 integer_to_list(I, 10) ->
     erlang:integer_to_list(I);
 integer_to_list(I, Base) 
@@ -286,8 +295,8 @@ binary_to_term(T, Opts) ->
 	erlang:error(badarg, [T,Opts]).
 
 term_to_binary(T) ->
-	%% defaults to no compression and zero minor version
-	erlang:'term_to_binary$'(T, 0, 0).
+	%% defaults to no compression and minor version 1
+	erlang:'term_to_binary$'(T, 0, 1).
 
 term_to_binary(T, Opts) when is_list(Opts) ->
 	{Compression,Version} = lists:foldl(fun(compressed, {_C,V}) ->
@@ -298,17 +307,17 @@ term_to_binary(T, Opts) when is_list(Opts) ->
 		{C,M};
 	(_, _) ->
 		erlang:error(badarg, [T,Opts])
-	end, {0,0}, Opts),
+	end, {0,1}, Opts),	%% default minor version is 1 since R17
 	erlang:'term_to_binary$'(T, Compression, Version);
 
 term_to_binary(T, Opts) ->
 	erlang:error(badarg, [T,Opts]).
 
 external_size(T) ->
-	erlang:'external_size$'(T, 0).
+	erlang:'external_size$'(T, 1).	%% default version is 1 since R17
 
 external_size(T, []) ->
-	erlang:'external_size$'(T, 0);
+	erlang:'external_size$'(T, 1);
 external_size(T, [{minor_version,Ver}]) when is_integer(Ver), Ver >= 0, Ver =< 1 ->
 	erlang:'external_size$'(T, Ver);
 external_size(T, Opts) ->
@@ -461,11 +470,12 @@ open_port(PortName, Opts) ->
 	BitOpts = port_options(Opts),
 	erlang:port_open(Drv, BitOpts).
 
-port_driver(echo) -> echo;
-port_driver(vif) -> vif;
-port_driver(disk) -> disk;
+port_driver(echo)	  -> echo;
+port_driver(vif)	  -> vif;
+port_driver(tube)	  -> tube;
+port_driver(disk)	  -> disk;
 port_driver({fd,2,2}) -> dumb_console;
-port_driver({spawn,'tty_sl -c -e'}) -> console;
+port_driver({spawn,console}) -> console;
 port_driver({spawn,"inet_gethost " ++ _}) -> dns;
 port_driver({spawn_driver,"udp_inet"}) -> udp;
 port_driver({spawn_driver,"tcp_inet"}) -> tcp;
@@ -544,8 +554,8 @@ disk_info() ->
 new_counter() ->
 	erlang:new_counter(64).
 
-update_counter(Ref) ->
-	erlang:update_counter(Ref, 1).
+update_counter(Id) ->
+	erlang:update_counter(Id, 1).
 
 system_monitor() ->
 	erlang:display({not_implemented,system_monitor}),
@@ -559,9 +569,9 @@ system_monitor(Pid, Opts) ->
 	erlang:display({not_implemented,system_monitor,Pid,Opts}),
 	undefined. %%TODO
 
-system_info(os_type) -> {xen,ling};
+system_info(os_type) -> {?LING_PLATFORM,?LING_OS};
 system_info(os_version) -> {7,7,7};
-system_info(version) -> "5.10.2";	%% Eshell version?
+system_info(version) -> "6.3";	%% Eshell version?
 
 system_info(system_version) ->
 	lists:flatten(["Erlang [ling-",?LING_VER,"]\n"]);
@@ -573,14 +583,16 @@ system_info(wordsize) -> 4;
 system_info({wordsize,internal}) -> 4;
 system_info({wordsize,external}) -> 4;
 system_info(smp_support) -> false;
+system_info(snifs) -> [];
 system_info(heap_type) -> private;
 system_info(schedulers) -> 1;
 system_info(schedulers_online) -> 1;
+system_info(context_reductions) -> ?SLICE_REDUCTIONS;
 system_info({allocator,ets_alloc}) -> false;
 system_info(ets_always_compress) -> false;
 system_info(thread_pool_size) -> 0;
 system_info(process_count) -> length(processes());
-system_info(hipe_architecture) -> none;
+system_info(hipe_architecture) -> undefined;
 system_info(machine) -> "LING";
 system_info(logical_processors) -> 1;
 system_info(break_ignored) -> false.
@@ -763,18 +775,23 @@ halt(_, _) ->
 
 atom_to_binary(Atom, Enc) ->
 	Chars = atom_to_list(Atom),
-	unicode:characters_to_binary(Chars, Enc).
+	unicode:characters_to_binary(Chars, latin1, Enc).
 
+binary_to_atom(Bin, _) when byte_size(Bin) > 255 -> erlang:error(system_limit); %% relaxed
 binary_to_atom(Bin, Enc) ->
 	List = unicode:characters_to_list(Bin, Enc),
 	list_to_atom(List).
 
+binary_to_existing_atom(Bin, _) when byte_size(Bin) > 255 -> erlang:error(system_limit); %% relaxed
 binary_to_existing_atom(Bin, Enc) ->
 	List = unicode:characters_to_list(Bin, Enc),
 	list_to_existing_atom(List).
 
 crc32(Data) ->
 	erlang:crc32(0, Data).
+
+adler32(Data) ->
+	erlang:adler32(1, Data).
 
 is_builtin(M, F, A) ->
 	ling_bifs:is_builtin(M, F, A).
@@ -794,5 +811,8 @@ purge_module(Mod) ->
 
 nif_error(Error) ->
 	erlang:error({nifs_not_supported,Error}).
+
+nif_error(Error, Args) ->
+	erlang:error({nifs_not_supported, Error}, Args).
 
 %EOF

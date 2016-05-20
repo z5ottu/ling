@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "outlet.h"
 
 #include <string.h>
@@ -66,9 +62,14 @@ outlet_t *ol_console_factory(proc_t *cont_proc, uint32_t bit_opts);
 outlet_t *ol_dns_factory(proc_t *cont_proc, uint32_t bit_opts);
 outlet_t *ol_udp_factory(proc_t *cont_proc, uint32_t bit_opts);
 outlet_t *ol_tcp_factory(proc_t *cont_proc, uint32_t bit_opts);
+#if LING_XEN
+outlet_t *ol_tube_factory(proc_t *cont_proc, uint32_t bit_opts);
+#endif
+#if LING_CONFIG_DISK
 outlet_t *ol_disk_factory(proc_t *cont_proc, uint32_t bit_opts);
+#endif
 
-#define NUM_DRIVERS	8
+#define NUM_DRIVERS	9
 
 drv_spec_t outlet_drivers[NUM_DRIVERS] = {
 	{ .name = A_ECHO,			.factory = ol_echo_factory },
@@ -78,7 +79,12 @@ drv_spec_t outlet_drivers[NUM_DRIVERS] = {
 	{ .name = A_DNS,			.factory = ol_dns_factory },
 	{ .name = A_UDP,			.factory = ol_udp_factory },
 	{ .name = A_TCP,			.factory = ol_tcp_factory },
+#if LING_XEN
+	{ .name = A_TUBE,			.factory = ol_tube_factory },
+#endif
+#if LING_CONFIG_DISK
 	{ .name = A_DISK,			.factory = ol_disk_factory },
+#endif
 };
 
 outlet_factory_func_t outlet_resolve_driver(term_t name)
@@ -303,11 +309,17 @@ void outlet_pass_new_data(outlet_t *ol, uint8_t *data, int dlen)
 {
 	proc_t *proc = scheduler_lookup(ol->owner);
 	if (proc == 0)
-		return;
+		return;	// drop
+
+	// The max_mq_len can be changed by vif outlets only. It stops adding
+	// messages to the owner's mailbox if it is overflowing already.
+	//
+	if (ol->max_mq_len != 0 && msg_queue_len(&proc->mailbox) >= ol->max_mq_len)
+		return;	// drop
 
 	int needed = 3 +3;	// two 2-tuples: {Port,{data,Data}}
 	uint32_t *htop;
-	term_t td;
+	term_t td = nil;
 
 	if (ol->binary)
 	{
@@ -404,4 +416,3 @@ int outlet_notify_owner(outlet_t *ol, term_t what)
 	return scheduler_new_local_mail_N(proc, tag_tuple(p));
 }
 
-//EOF

@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "bif_impl.h"
 
 extern int max_backtrace_depth;
@@ -117,9 +113,9 @@ term_t cbif_statistics1(proc_t *proc, term_t *regs)
 	else if (What == A_RUNTIME)
 	{
 		static uint64_t last_runtime = 0;
-		if (last_runtime == 0)
-			last_runtime = start_of_day_wall_clock /1000000;
 		uint64_t runtime_ms = scheduler_runtime_get() /1000000;
+		if (last_runtime == 0)
+			last_runtime = runtime_ms; //XXX
 		term_t n1 = int_to_term(runtime_ms, &proc->hp);
 		term_t n2 = int_to_term(runtime_ms - last_runtime, &proc->hp);
 		term_t r = heap_tuple2(&proc->hp, n1, n2);
@@ -329,7 +325,7 @@ term_t cbif_process_display2(proc_t *proc, term_t *regs)
 	int disp = probe->cap.ip -fi;
 	if (fi != 0)
 		printk("Program counter: 0x%pp (%pt:%pt/%d +%d)\n",
-				probe->cap.ip, T(fi[1]), T(fi[2]), fi[3], disp);
+				probe->cap.ip, T(fi[1]), T(fi[2]), (int)fi[3], disp);
 	else
 		printk("Program counter: 0x%pp\n", probe->cap.ip);
 	
@@ -342,7 +338,7 @@ term_t cbif_process_display2(proc_t *proc, term_t *regs)
 		disp = cp -fi;
 		if (fi != 0)
 			printk("CP: 0x%pp (%pt:%pt/%d +%d)\n",
-					cp, T(fi[1]), T(fi[2]), fi[3], disp);
+					cp, T(fi[1]), T(fi[2]), (int)fi[3], disp);
 		else
 			printk("CP: 0x%pp\n", cp);
 	}
@@ -360,7 +356,7 @@ term_t cbif_process_display2(proc_t *proc, term_t *regs)
 			disp = cp -fi;
 			if (fi != 0)
 				printk("\n0x%pp Return addr 0x%pp (%pt:%pt/%d +%d)\n",
-							sp, cp, T(fi[1]), T(fi[2]), fi[3], disp);
+							sp, cp, T(fi[1]), T(fi[2]), (int)fi[3], disp);
 			else
 				printk("\n0x%pp Return addr 0x%pp\n", sp, cp);
 		}
@@ -377,7 +373,7 @@ term_t cbif_process_display2(proc_t *proc, term_t *regs)
 				disp = where -fi;
 				if (fi != 0)
 					printk("y(%d)\tCatch 0x%pp (%pt:%pt/%d +%d)\n",
-								y, where, T(fi[1]), T(fi[2]), fi[3], disp);
+								y, where, T(fi[1]), T(fi[2]), (int)fi[3], disp);
 				else
 					printk("y(%d)\tCatch 0x%pp\n", y, where);
 			}
@@ -468,7 +464,6 @@ term_t cbif_load_module2(proc_t *proc, term_t *regs)
 
 	return heap_tuple2(&proc->hp, A_MODULE, Mod);
 }
-
 
 term_t cbif_delete_module1(proc_t *proc, term_t *regs)
 {
@@ -567,7 +562,7 @@ term_t cbif_function_exported3(proc_t *proc, term_t *regs)
 	if (!is_atom(Mod) || !is_atom(Func) || !is_int(Arity))
 		badarg();
 	term_t n = int_value(Arity);
-	if (n < 0 || n > 255)
+	if (n > 255)
 		badarg(Arity);
 	export_t *e = code_base_lookup(Mod, Func, n);
 	if (e == 0)
@@ -665,13 +660,16 @@ term_t cbif_halt2(proc_t *proc, term_t *regs)
 	if (!is_bool(Flush))
 		badarg(Flush);		//TODO: handle higher up
 
+	int status = 0;
 	if (!is_int(Status))
 	{
 		if (is_list(Status))
 			printk("*** halt: %pt\n", T(Status));
 	}
+	else
+		status = int_value(Status);
 
-	domain_poweroff();
+	domain_poweroff(status);
 	
 	return A_TRUE;
 }
@@ -704,12 +702,12 @@ term_t cbif_date0(proc_t *proc, term_t *regs)
 	uint64_t now = wall_clock()	+ TIMEZONE_NS;
 	expand_time(&exp, now);
 
-    /** (1-31) day of the month */
-    //int32_t tm_mday;
-    /** (0-11) month of the year */
-    //int32_t tm_mon;
-    /** year since 1900 */
-    //int32_t tm_year;
+	/** (1-31) day of the month */
+	//int32_t tm_mday;
+	/** (0-11) month of the year */
+	//int32_t tm_mon;
+	/** year since 1900 */
+	//int32_t tm_year;
 
 	return heap_tuple3(&proc->hp,
 		tag_int(exp.tm_year+1900),
@@ -726,11 +724,11 @@ term_t cbif_time0(proc_t *proc, term_t *regs)
 	expand_time(&exp, now);
 
 	/** (0-61) seconds past tm_min */
-    //int32_t tm_sec;
-    /** (0-59) minutes past tm_hour */
-    //int32_t tm_min;
-    /** (0-23) hours past midnight */
-    //int32_t tm_hour;
+	//int32_t tm_sec;
+	/** (0-59) minutes past tm_hour */
+	//int32_t tm_min;
+	/** (0-23) hours past midnight */
+	//int32_t tm_hour;
 
 	return heap_tuple3(&proc->hp,
 		tag_int(exp.tm_hour),
@@ -746,12 +744,12 @@ term_t cbif_localtime0(proc_t *proc, term_t *regs)
 	uint64_t now = wall_clock() + TIMEZONE_NS;
 	expand_time(&exp, now);
 
-    /** (1-31) day of the month */
-    //int32_t tm_mday;
-    /** (0-11) month of the year */
-    //int32_t tm_mon;
-    /** year since 1900 */
-    //int32_t tm_year;
+	/** (1-31) day of the month */
+	//int32_t tm_mday;
+	/** (0-11) month of the year */
+	//int32_t tm_mon;
+	/** year since 1900 */
+	//int32_t tm_year;
 
 	term_t dt = heap_tuple3(&proc->hp,
 		tag_int(exp.tm_year+1900),
@@ -759,11 +757,11 @@ term_t cbif_localtime0(proc_t *proc, term_t *regs)
 		tag_int(exp.tm_mday));
 
 	/** (0-61) seconds past tm_min */
-    //int32_t tm_sec;
-    /** (0-59) minutes past tm_hour */
-    //int32_t tm_min;
-    /** (0-23) hours past midnight */
-    //int32_t tm_hour;
+	//int32_t tm_sec;
+	/** (0-59) minutes past tm_hour */
+	//int32_t tm_min;
+	/** (0-23) hours past midnight */
+	//int32_t tm_hour;
 
 	term_t tm = heap_tuple3(&proc->hp,
 		tag_int(exp.tm_hour),
@@ -781,12 +779,12 @@ term_t cbif_universaltime0(proc_t *proc, term_t *regs)
 	uint64_t now = wall_clock();	// UTC
 	expand_time(&exp, now);
 
-    /** (1-31) day of the month */
-    //int32_t tm_mday;
-    /** (0-11) month of the year */
-    //int32_t tm_mon;
-    /** year since 1900 */
-    //int32_t tm_year;
+	/** (1-31) day of the month */
+	//int32_t tm_mday;
+	/** (0-11) month of the year */
+	//int32_t tm_mon;
+	/** year since 1900 */
+	//int32_t tm_year;
 
 	term_t dt = heap_tuple3(&proc->hp,
 		tag_int(exp.tm_year+1900),
@@ -794,11 +792,11 @@ term_t cbif_universaltime0(proc_t *proc, term_t *regs)
 		tag_int(exp.tm_mday));
 
 	/** (0-61) seconds past tm_min */
-    //int32_t tm_sec;
-    /** (0-59) minutes past tm_hour */
-    //int32_t tm_min;
-    /** (0-23) hours past midnight */
-    //int32_t tm_hour;
+	//int32_t tm_sec;
+	/** (0-59) minutes past tm_hour */
+	//int32_t tm_min;
+	/** (0-23) hours past midnight */
+	//int32_t tm_hour;
 
 	term_t tm = heap_tuple3(&proc->hp,
 		tag_int(exp.tm_hour),
@@ -811,6 +809,12 @@ term_t cbif_universaltime0(proc_t *proc, term_t *regs)
 term_t cbif_native_name_encoding0(proc_t *proc, term_t *regs)
 {
 	return A_UTF8;
+}
+
+term_t cbif_warning_map0(proc_t *proc, term_t *regs)
+{
+	// In BEAM, this can be changed using +W command line flags
+	return A_WARNING;
 }
 
 static term_t start_timer(proc_t *proc, term_t *regs, int enveloped)
@@ -1032,36 +1036,37 @@ term_t cbif_new_counter1(proc_t *proc, term_t *regs)
 		? 0xffffffffffffffff
 		: (1ull << nbits) -1;
 
-	term_t cref = heap_make_ref(&proc->hp);
-	uint64_t ref_id = local_ref_id(cref);
-
 	//EXCEPTION POSSIBLE
-	counter_add(ref_id, mask);
+	uint64_t counter_id = counter_add(mask);
 	
-	return cref;
+	return uint_to_term(counter_id, &proc->hp);
 }
 
 term_t cbif_read_counter1(proc_t *proc, term_t *regs)
 {
-	term_t Ref = regs[0];
-	if (!is_boxed_ref(Ref))
-		badarg(Ref);
-	uint64_t ref_id = local_ref_id(Ref);
+	term_t Id = regs[0];
+	if (!is_int(Id) && !is_boxed_bignum(Id))
+		badarg(Id);
+	uint64_t counter_id = (is_int(Id))
+		?int_value(Id)
+		:bignum_to_int((bignum_t *)peel_boxed(Id));
 
 	uint64_t val;
-	if (counter_read(ref_id, &val) < 0)
-		badarg(Ref);
+	if (counter_read(counter_id, &val) < 0)
+		badarg(Id);
 
 	return uint_to_term(val, &proc->hp);
 }
 
 term_t cbif_update_counter2(proc_t *proc, term_t *regs)
 {
-	term_t Ref = regs[0];
+	term_t Id = regs[0];
 	term_t Incr = regs[1];
-	if (!is_boxed_ref(Ref))
-		badarg(Ref);
-	uint64_t ref_id = local_ref_id(Ref);
+	if (!is_int(Id) && !is_boxed_bignum(Id))
+		badarg(Id);
+	uint64_t counter_id = (is_int(Id))
+		?int_value(Id)
+		:bignum_to_int((bignum_t *)peel_boxed(Id));
 	if (!is_int(Incr) && !is_boxed_bignum(Incr))
 		badarg(Incr);
 
@@ -1080,21 +1085,21 @@ term_t cbif_update_counter2(proc_t *proc, term_t *regs)
 		val = bignum_to_uint(bn);
 	}
 
-	if (counter_increment(ref_id, val) < 0)
-		badarg(Ref);
+	if (counter_increment(counter_id, val) < 0)
+		badarg(Id);
 
 	return A_TRUE;
 }
 
 term_t cbif_release_counter1(proc_t *proc, term_t *regs)
 {
-	term_t Ref = regs[0];
-	if (!is_boxed_ref(Ref))
-		badarg(Ref);
-	uint64_t ref_id = local_ref_id(Ref);
+	term_t Id = regs[0];
+	uint64_t counter_id = (is_int(Id))
+		?int_value(Id)
+		:bignum_to_int((bignum_t *)peel_boxed(Id));
 
-	if (counter_remove(ref_id) < 0)
-		badarg(Ref);
+	if (counter_remove(counter_id) < 0)
+		badarg(Id);
 
 	return A_TRUE;
 }

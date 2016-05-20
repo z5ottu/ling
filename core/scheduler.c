@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "scheduler.h"
 
 #include "proc_queue.h"
@@ -102,9 +98,11 @@ static uint64_t expect_event_in_ns;
 static int scheduler_park_runnable_N(proc_t *proc);
 
 uint64_t lwip_closest_timeout(void);
-void lwip_check_timeouts(void);
+void net_check_timeouts(void);
 
-void netif_poll_all(void);
+#if LING_XEN
+int netmap_do_pending(void);
+#endif
 
 #ifdef LING_DEBUG
 static enum sched_phase_t current_phase = PHASE_NONE;
@@ -143,6 +141,9 @@ void scheduler_init(void)
 	last_event_fired_ns = monotonic_clock();
 	avg_event_gap_ns = MANUAL_POLLING_THRESHOLD;
 	expect_event_in_ns = MANUAL_POLLING_THRESHOLD;
+
+	memset(purgatory, 0, sizeof(purgatory));
+	num_purged = 0;
 }
 
 static void update_event_times(int nr_fired, uint64_t ticks)
@@ -175,45 +176,21 @@ static void garbage_collect_waiting_processes(uint64_t alloted_ns)
 	int nr_scanned = 0;
 	while (nr_scanned < nr_waiting)
 	{
-		int gc_runs = estimate_max_gc_runs(alloted_ns);
-		if (gc_runs < 0)
-			break;	// not enough time for any run
-
 		static int64_t counter = 0;
 		int index = counter % nr_waiting;
 		proc_t *fatty = (index >= nr_timed)
 				? proc_list_at(&queues.on_infinite_receive, index -nr_timed)
 				: wait_list_at(&queues.on_timed_receive, index);
 		heap_t *hp = &fatty->hp;
-		if (hp->wait_gc_runs >= 0 && hp->wait_gc_runs <= gc_runs)
+		if (!gc_skip_idle(hp))
 		{
-			int nr_regs = proc_count_root_regs(fatty);
-			region_t root_regs[nr_regs];
-			proc_fill_root_regs(fatty, root_regs, fatty->cap.regs, fatty->cap.live);
 			uint64_t gc_started_ns = monotonic_clock();
-			if (heap_gc_non_recursive_N(hp, root_regs, nr_regs) < 0)
-			{
-				printk("garbage_collect_waiting_processes: no memory while collecting garbage, ignored\n");
-				break;
-			}
+			proc_burn_fat(GC_LOC_IDLE, fatty, fatty->cap.regs, fatty->cap.live);
 			uint64_t consumed_ns = (monotonic_clock() -gc_started_ns);
+			if (consumed_ns > alloted_ns)
+				break;
 			alloted_ns -= consumed_ns;
-
-			//printk("%d|%d|%d|%d|%llu|%llu\n",
-			//	nr_timed,
-			//	nr_infinite,
-			//	gc_runs,
-			//	hp->wait_gc_runs,
-			//	consumed_ns,
-			//	alloted_ns);
-
-			hp->wait_gc_runs++;
-			if (hp->gc_spot == 0)
-				hp->wait_gc_runs = -1; // no more gc for this waiting process
-
-			continue;	// continue with the same process
 		}
-
 		counter++;
 		nr_scanned++;
 	}
@@ -231,7 +208,7 @@ void scheduler_runtime_update(void)
 
 uint64_t scheduler_runtime_get(void)
 {
-	return runtime;
+	return runtime + (monotonic_clock() - rt_start);
 }
 
 // For the first born process only
@@ -341,8 +318,6 @@ static uint64_t proc_started_ns = 0;
 			else
 				current->my_queue = MY_QUEUE_TIMED_WAIT;
 		}
-		// Reset the number of gc runs for the waiting process
-		current->hp.wait_gc_runs = 0;
 		break;
 	case SLICE_RESULT_DONE:
 		scheduler_exit_process(current, A_NORMAL);
@@ -385,7 +360,7 @@ static uint64_t proc_started_ns = 0;
 		if (scheduler_park_runnable_N(current) < 0)
 			memory_exhausted = 1;
 		outlet_t *closing = current->result.closing;
-		assert(is_atom(current->result.why));
+		//assert(is_atom(current->result.why));
 		outlet_close(closing, current->result.why);
 		break;
 	}
@@ -406,8 +381,7 @@ do_pending:
 
 	set_phase(PHASE_EVENTS);
 	// software events/timeouts
-	lwip_check_timeouts();
-	netif_poll_all();		// for loopback 
+	net_check_timeouts();
 	etimer_expired(ticks);
 	// 'hardware' events
 	int nr_fired = events_do_pending();

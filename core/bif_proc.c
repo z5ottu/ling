@@ -31,10 +31,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
-
 #include "bif_impl.h"
 
 term_t cbif_process_flag2(proc_t *proc, term_t *regs)
@@ -149,8 +145,8 @@ term_t cbif_process_info2(proc_t *proc, term_t *regs)
 		val = A_ERROR_HANDLER;
 	else if (What == A_GARBAGE_COLLECTION)
 	{
-		//TODO
-		val = A_UNDEFINED;
+		// BEAM returns a property list
+		val = tag_int(probe->hp.minor_gcs);
 	}
 	else if (What == A_GROUP_LEADER)
 		val = probe->group_leader;
@@ -348,29 +344,38 @@ term_t cbif_is_process_alive1(proc_t *proc, term_t *rs)
 
 term_t cbif_garbage_collect0(proc_t *proc, term_t *rs)
 {
+	if (proc->hp.total_size == 0)
+		return A_TRUE;	// avoid crash in heap_gc_full_sweep_N()
+
 	//NB: no live registers
+	//NB: supress_gc flag ignored
 
 	int nr_messages = msg_queue_len(&proc->mailbox);
 	int nr_regs = 1 +1 +1 +nr_messages +proc->pending_timers;
-	region_t root_regs[nr_regs];
-	root_regs[0].starts = proc->stop;
-	root_regs[0].ends = proc_stack_bottom(proc);
-	root_regs[1].starts = &proc->dictionary;
-	root_regs[1].ends = &proc->dictionary +1;
-	root_regs[2].starts = &proc->stack_trace;
-	root_regs[2].ends = &proc->stack_trace +1;
-
-	// Creates a root region for each message in the mailbox
-	msg_queue_fill_root_regs(&proc->mailbox, root_regs +3);		//NB: +3
-	// Creates a root region for each pending timer
-	etimer_fill_root_regs(proc, root_regs +3 +nr_messages,
-										proc->pending_timers);	//NB: +3
-
-	if (heap_gc_full_sweep_N(&proc->hp, root_regs, nr_regs) < 0)
+	if (nr_regs <= MAX_ROOT_REGS)
 	{
-		printk("garbage_collect(): no memory during GC, ignored\n");
-		return A_TRUE;
+		region_t root_regs[nr_regs];
+		root_regs[0].starts = proc->stop;
+		root_regs[0].ends = proc_stack_bottom(proc);
+		root_regs[1].starts = &proc->dictionary;
+		root_regs[1].ends = &proc->dictionary +1;
+		root_regs[2].starts = &proc->stack_trace;
+		root_regs[2].ends = &proc->stack_trace +1;
+
+		// Creates a root region for each message in the mailbox
+		msg_queue_fill_root_regs(&proc->mailbox, root_regs +3);		//NB: +3
+		// Creates a root region for each pending timer
+		etimer_fill_root_regs(proc, root_regs +3 +nr_messages,
+											proc->pending_timers);	//NB: +3
+
+		if (heap_gc_full_sweep_N(&proc->hp, root_regs, nr_regs) < 0)
+		{
+			printk("garbage_collect(): no memory during GC, ignored\n");
+			return A_TRUE;
+		}
 	}
+	else
+		printk("garbage_collect(): too many roots, skipped\n");
 
 	return A_TRUE;
 }
@@ -733,4 +738,3 @@ term_t cbif_set_dictionary1(proc_t *proc, term_t *regs)
 	return A_OK;
 }
 
-//EOF

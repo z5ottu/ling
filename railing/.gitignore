@@ -1,5 +1,4 @@
-rebar.config
-.rebar
-ebin/
-
 railing
+*.beam
+*.img
+*.elf

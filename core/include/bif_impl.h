@@ -45,15 +45,19 @@
 #include <nettle/hmac.h>
 #include <nettle/aes.h>
 #include <nettle/cbc.h>
+#include <nettle/ctr.h>
 
 #include "crc32.h"
+#include "adler32.h"
 
+#include "mm.h"
 #include "atom_defs.h"
 #include "bits.h"
 #include "getput.h"
 #include "mixed.h"
 #include "term_util.h"
 #include "list_util.h"
+#include "map_util.h"
 #include "unicode.h"
 #include "catch_tab.h"
 
@@ -71,22 +75,36 @@
 #include "cluster.h"
 #include "decode.h"
 
+#include "event.h"
+
 #include "monitors.h"
 #include "timers.h"
 #include "console.h"
 #include "netfe.h"
-#include "netif.h"
-#include "disk.h"
 #include "ser_cons.h"
+#include "timers.h"
 #include "ets.h"
 #include "counters.h"
 #include "embed.h"
 #include "mtwist.h"
 #include "prof.h"
 
+#include "outlet.h"
+#include "netif.h"
+
+#include "disk.h"
+
+#ifdef LING_XEN
+# include "xenstore.h"
+# include "xen/io/xs_wire.h"
+# include "pore.h"
+#endif
+
+#ifdef LING_WITH_LWIP
 #include "lwip/ip_addr.h"
 #include "lwip/stats.h"
 #include "lwip/netif.h"
+#endif
 
 #define fail(reason) do { \
 	proc->bif_excep_reason = (reason); \
@@ -103,4 +121,3 @@
 	return noval; \
 } while (0)
 
-//EOF

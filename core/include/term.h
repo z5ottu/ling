@@ -38,6 +38,7 @@
 typedef uint32_t term_t;
 
 typedef struct t_float_t t_float_t;
+typedef struct t_map_t t_map_t;
 typedef struct t_fun_t t_fun_t;
 typedef struct t_export_t t_export_t;
 typedef struct t_proc_bin_t t_proc_bin_t;
@@ -137,6 +138,8 @@ int is_term_smaller(term_t a, term_t b);
 extern uint32_t zero;
 #define ZERO_TUPLE	(tag_tuple(&zero))
 
+#define MAX_TUPLE_ARITY  16777215
+
 // Primary and immediate tagging:
 //
 // xxxx00	cons
@@ -146,7 +149,7 @@ extern uint32_t zero;
 // 100011	catch index
 // 001011	short pid
 // 010011	short oid
-// 011011	(unused) (was short ref)
+// 011011	short eid
 // 101011	(unused) overloaded as reg X
 // 110011	(unused) overloaded as slot Y
 // 111011	nil,noval,rip
@@ -169,8 +172,8 @@ extern uint32_t zero;
 #define is_catch(t)	(((t) & TAG_IMMED2_MASK) == 0x23)
 
 #define is_short_pid(t)		(((t) & TAG_IMMED2_MASK) == 0xb)
-#define is_short_oid(t)		(((t) & TAG_IMMED2_MASK) == 0x13)
-//#define is_short_ref(t)		(((t) & TAG_IMMED2_MASK) == 0x1b)
+#define is_short_oid(t)		(((t) & 0x17) == 0x13)
+#define is_short_eid(t)		(((t) & TAG_IMMED2_MASK) == 0x1b)
 
 #define MAX_INT_VALUE	((1 << (32 - TAG_IMMED1_SIZE - 1)) - 1)
 #define MIN_INT_VALUE	(-1 << (32 - TAG_IMMED1_SIZE - 1))
@@ -200,7 +203,7 @@ extern uint32_t zero;
 // x0000		bignum (positive)
 // x0001		bignum (negative)
 // x0010		float
-// x0011		(unused)
+// x0011		map
 // x0100		(unused)
 // x0101		(unused)
 // x0110		fun
@@ -225,6 +228,7 @@ extern uint32_t zero;
 #define SUBTAG_POS_BIGNUM		0x0
 #define SUBTAG_NEG_BIGNUM		0x1
 #define SUBTAG_FLOAT			0x2
+#define SUBTAG_MAP				0x3
 #define SUBTAG_FUN				0x6
 #define SUBTAG_EXPORT			0x7
 #define SUBTAG_PID				0x8
@@ -250,6 +254,7 @@ extern uint32_t zero;
 #define is_boxed_bignum(t)	(is_boxed((t)) && is_bignum(peel_boxed((t))))
 
 #define is_boxed_float(t)	(is_boxed((t)) && boxed_tag(peel_boxed((t))) == SUBTAG_FLOAT)
+#define is_boxed_map(t)		(is_boxed((t)) && boxed_tag(peel_boxed((t))) == SUBTAG_MAP)
 
 #define is_boxed_pid(t)	(is_boxed((t)) && boxed_tag(peel_boxed((t))) == SUBTAG_PID)
 #define is_boxed_oid(t)	(is_boxed((t)) && boxed_tag(peel_boxed((t))) == SUBTAG_OID)
@@ -273,7 +278,7 @@ extern uint32_t zero;
 #define tag_catch(i)		(((term_t)(i) << TAG_IMMED2_SIZE) | 0x23)
 #define tag_short_pid(i)	(((term_t)(i) << TAG_IMMED2_SIZE) | 0xb)
 #define tag_short_oid(i)	(((term_t)(i) << TAG_IMMED2_SIZE) | 0x13)
-//#define tag_short_ref(i)	(((term_t)(i) << TAG_IMMED2_SIZE) | 0x1b)
+#define tag_short_eid(i)	(((term_t)(i) << TAG_IMMED2_SIZE) | 0x1b)
 
 #define int_value(t)		((int)(t) >> TAG_IMMED1_SIZE)
 #define atom_index(t)		((uint32_t)(t) >> TAG_IMMED2_SIZE)
@@ -398,6 +403,24 @@ struct t_export_t {
 	(p) += WSIZE(t_export_t); \
 } while (0)
 #endif
+
+struct t_map_t {
+	uint32_t hdr;	// size:27,tag:4
+	term_t keys;	// key tuple
+	term_t values[];
+};
+
+#ifdef LING_DEBUG
+#define box_map(p, sz, k)		__box_map(&(p), (sz), (k))
+#define map_size(p)				__map_size((uint32_t *)(p))
+#else
+#define box_map(p, sz, k) do { \
+	((t_map_t *)(p))->hdr = HDR_IS_NOT_CP | ((sz) << 4) | SUBTAG_MAP; \
+	((t_map_t *)(p))->keys = (k); \
+	(p) += WSIZE(t_map_t) + (sz); \
+} while (0)
+#define map_size(p)				((((t_map_t *)(p))->hdr >> 4) & 0x7ffffff)
+#endif // LING_DEBUG
 
 struct t_proc_bin_t {
 	uint32_t hdr;		// subtag only

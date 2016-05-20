@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -28,11 +28,13 @@
 -define(INET_AF_INET6,        2).
 -define(INET_AF_ANY,          3). % Fake for ANY in any address family
 -define(INET_AF_LOOPBACK,     4). % Fake for LOOPBACK in any address family
+-define(INET_AF_PACKET,       5).
 
 %% type codes to open and gettype - INET_REQ_GETTYPE
 -define(INET_TYPE_STREAM,     1).
 -define(INET_TYPE_DGRAM,      2).
 -define(INET_TYPE_SEQPACKET,  3).
+-define(INET_TYPE_LINK,       4).
 
 %% socket modes, INET_LOPT_MODE
 -define(INET_MODE_LIST,	      0).
@@ -46,6 +48,7 @@
 -define(INET_PASSIVE, 0).
 -define(INET_ACTIVE,  1).
 -define(INET_ONCE,    2). % Active once then passive
+-define(INET_MULTI,   3). % Active N then passive
 
 %% state codes (getstatus, INET_REQ_GETSTATUS)
 -define(INET_F_OPEN,         16#0001).
@@ -86,6 +89,8 @@
 -define(INET_REQ_ACCEPT,        26).
 -define(INET_REQ_LISTEN,        27).
 -define(INET_REQ_IGNOREFD,      28).
+-define(INET_REQ_GETLADDRS,     29).
+-define(INET_REQ_GETPADDRS,     30).
 
 %% TCP requests
 %%-define(TCP_REQ_ACCEPT,         40). MOVED
@@ -141,6 +146,9 @@
 -define(INET_LOPT_READ_PACKETS,  33).
 -define(INET_OPT_RAW,            34).
 -define(INET_LOPT_TCP_SEND_TIMEOUT_CLOSE, 35).
+-define(INET_LOPT_MSGQ_HIWTRMRK,  36).
+-define(INET_LOPT_MSGQ_LOWTRMRK,  37).
+-define(INET_LOPT_NETNS,          38).
 % Specific SCTP options: separate range:
 -define(SCTP_OPT_RTOINFO,	 	100).
 -define(SCTP_OPT_ASSOCINFO,	 	101).

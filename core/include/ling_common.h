@@ -40,6 +40,8 @@
 // likely()/unlikely()
 #include "os.h"
 
+#include "lassert.h"
+#include "limits.h"
 #include "sys_stats.h"
 
 #ifdef LING_DEBUG
@@ -72,7 +74,8 @@ typedef uint8_t byte_t;
 
 extern uint64_t start_of_day_wall_clock;
 
-extern const char *ling_hostname;
+#define DOMAIN_NAME_MAX_SIZE  256
+extern char my_domain_name[];
 
 // returned by recursive functions
 #define NO_MEMORY		1
@@ -82,6 +85,9 @@ extern const char *ling_hostname;
 #define NOT_FOUND		5
 
 #define UNUSED __attribute__((unused))
+
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)
 
 // hot/cold attributes on labels need gcc >= 4.8
 #if __GNUC__ >= 4 && __GNUC_MINOR__ >= 8
@@ -101,28 +107,18 @@ extern const char *ling_hostname;
 #define UNUSED_MEM_SIGN		(0xdeadbeef)
 #endif
 
-void printk(const char *fmt, ...) __attribute__ ((format (printf, 1, 2)));
+void printk(const char *fmt, ...); // __attribute__ ((format (printf, 1, 2)));
 
-void fatal_error(const char *fmt, ...) __attribute__ ((format (printf, 1, 2))) __attribute__ ((noreturn));
-
-void __assert_fail(const char *assertion,
-	const char *file, unsigned int line, const char * function) __attribute__ ((noreturn));
-
-#ifndef SUPPRESS_ASSERTS
-#define assert(x) \
-	do { \
-		if (!(x)) { \
-			__assert_fail(#x, __FILE__, __LINE__, __FUNCTION__); \
-		} \
-	} while (0)
-#else
-#define assert(x)
-#endif
+void fatal_error(const char *fmt, ...) __attribute__ ((noreturn)); // __attribute__ ((format (printf, 1, 2)))
 
 #ifdef LING_DEBUG
-#define debug(fmt, ...)		printk(fmt, ## __VA_ARGS__)
+#  if LING_POSIX
+     int debug(const char *fmt, ...);
+#  elif LING_XEN
+#    define debug(...)  printk(__VA_ARGS__)
+#  endif
 #else
-#define debug(fmt, ...)
+#  define debug(fmt, ...)
 #endif
 
 #define ssi(what)				sys_stats_inc((what))
@@ -146,7 +142,8 @@ extern uint32_t trace_mask;
 extern uint32_t trace_module;	// term_t
 #endif
 
-void domain_poweroff(void); // __attribute__ ((noreturn));
+void domain_poweroff(int status); // __attribute__ ((noreturn));
+void yield(void);
 
 #ifdef LING_DEBUG
 enum sched_phase_t {

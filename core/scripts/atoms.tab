@@ -52,6 +52,7 @@ not_implemented
 not_found
 no_memory
 badsig
+bad_key
 
 # BIF implementation
 file
@@ -93,6 +94,7 @@ noproc
 trap_exit
 fullsweep_after
 monitor_nodes
+suppress_gc
 backtrace
 binary
 catchlevel
@@ -155,6 +157,7 @@ unicode
 utf8
 utf16
 utf32
+warning
 error
 incomplete
 big
@@ -262,7 +265,6 @@ httph_bin
 tcp
 tcp_error
 tcp_closed
-emsgsize
 ac
 scope
 empty_out_q
@@ -278,6 +280,21 @@ disk_async
 disk_async_error
 eio
 enotsup
+read
+write
+mkdir
+rm
+directory
+get_perms
+set_perms
+watch
+watch_event
+unwatch
+transaction_start
+transaction_end
+can_send
+xenstore
+irq
 
 #ETS tables
 set
@@ -379,6 +396,12 @@ module_size
 variant_size
 count_iops
 processing_delay
+llstat
+stop
 help
+cloudozer
+netmap
+tx
+rx
+gc
 
-#EOF

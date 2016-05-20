@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -32,8 +32,13 @@ start(_, []) ->
     case supervisor:start_link({local, kernel_sup}, kernel, []) of
 	{ok, Pid} ->
 	    Type = get_error_logger_type(),
-	    error_logger:swap_handler(Type),
-	    {ok, Pid, []};
+            case error_logger:swap_handler(Type) of
+                ok -> {ok, Pid, []};
+                Error ->
+                    %% Not necessary since the node will crash anyway:
+                    exit(Pid, shutdown),
+                    Error
+            end;
 	Error -> Error
     end.
 
@@ -63,7 +68,7 @@ get_error_logger_type() ->
 %%%
 %%%               ---------------
 %%%              | kernel_sup (A)|
-%%%               ---------------
+%%%	          ---------------
 %%%                      |
 %%%        -------------------------------
 %%%       |              |                |
@@ -96,9 +101,9 @@ init([]) ->
 	    permanent, 2000, worker, [code]},
 
 	%%MK
-	Disk = {disk_server,
-		{disk_server, start_link, []},
-		permanent, 2000, worker, []},
+	Disk = {disk_server,{disk_server,start_link,[]},permanent,2000,worker,[]},
+	Xenstore = {xenstore,{xenstore, start_link, []},permanent,2000,worker,[]},
+	Tube = {tube_server,{tube_server, start_link, []},permanent,2000,worker,[]},
 	%%MK
 
     File = {file_server_2,
@@ -112,15 +117,17 @@ init([]) ->
 	    {user_sup, start, []},
 	    temporary, 2000, supervisor, [user_sup]},
     
+	MinimalServers = case os:type() of
+		{xen, ling} -> [Xenstore, Tube];
+		_ -> []
+	end ++ [File, Disk, Code, StdError, User, Config],
     case init:get_argument(mode) of
 	{ok, [["minimal"]]} ->
 	    SafeSupervisor = {kernel_safe_sup,
 			      {supervisor, start_link,
 			       [{local, kernel_safe_sup}, ?MODULE, safe]},
 			      permanent, infinity, supervisor, [?MODULE]},
-	    {ok, {SupFlags,
-		  [File, Disk, Code, StdError, User, %%MK
-		   Config, SafeSupervisor]}};
+	    {ok, {SupFlags, [SafeSupervisor | MinimalServers]}};
 	_ ->
 	    Rpc = {rex, {rpc, start_link, []}, 
 		   permanent, 2000, worker, [rpc]},
@@ -160,9 +167,8 @@ init([]) ->
 	    {ok, {SupFlags,
 		  [Rpc, Global, InetDb | DistAC] ++ 
 		  [NetSup, Glo_grp] ++
-		  [P9Server, P9Mounter] ++ %%MK
-		  [File, Disk | GooFS] ++ %%MK
-		  [Code, StdError, User, Config, SafeSupervisor] ++ Timer}}
+		  [P9Server, P9Mounter | GooFS] ++
+		  [SafeSupervisor | MinimalServers] ++ Timer}}
     end;
 init(safe) ->
     SupFlags = {one_for_one, 4, 3600},

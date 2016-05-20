@@ -31,9 +31,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//
-//
-//
+#include <string.h>
 
 #include "ling_common.h"
 
@@ -42,11 +40,40 @@
 #include "atom_defs.h"
 #include "term_util.h"
 
+#ifdef LING_WITH_LWIP
 #include "lwip/ip.h"
 #undef LWIP_SOCKET
 #define LWIP_SOCKET 1
 #include "lwip/sockets.h"
 #undef LWIP_SOCKET
+#endif
+
+#if LING_WITH_LIBUV
+# include <sys/socket.h>
+#endif
+
+int ol_realloc_recvbuf(outlet_t *ol, size_t size)
+{
+	memnode_t *node = nalloc_N(size);
+	if (node == 0)
+	{
+		// We may return -NO_MEMORY here; a more conservative
+		// approach is to ignore the option and continue
+		printk("%s: cannot expand recv_buffer to %d byte(s)\n", __FUNCTION__, (int)size);
+		return -NO_MEMORY;
+	}
+	ol->recv_bufsize = size;
+	assert(ol->recv_buf_off <= ol->recv_bufsize);
+	memcpy(node->starts, ol->recv_buffer, ol->recv_buf_off); /* might cause a long pause */
+	ol->max_recv_bufsize = (void *)node->ends -(void *)node->starts;
+	ol->recv_buffer = (uint8_t *)node->starts;
+	nfree(ol->recv_buf_node);
+
+	ol->recv_buf_node = node;
+	debug("%s(size=%d)\n", __FUNCTION__, (int)size);
+	return 0;
+	// ol->recv_buf_off stays the same
+}
 
 void inet_set_default_opts(outlet_t *ol)
 {
@@ -57,11 +84,16 @@ void inet_set_default_opts(outlet_t *ol)
 	ol->buffer = 0;
 	ol->header = 0;
 	ol->packet = TCP_PB_RAW;
+#if LING_WITH_LWIP
+	ol->packet_size = TCP_WND;		// TCP window in lwIP is static
+#else
 	ol->packet_size = 0;
+#endif
 
 	ol->exit_on_close = 1;
 }
 
+#if LING_WITH_LWIP
 #define SET_SO_OPT(opts, name, val)  do { \
 	if (val) \
 		*(opts) |= (name); \
@@ -69,10 +101,52 @@ void inet_set_default_opts(outlet_t *ol)
 		*(opts) &= ~(name); \
 } while (0)
 
+# define GET_INET_OPT(opt) \
+	((opts & (opt)) != 0)
+#endif
+
+#if LING_WITH_LIBUV
+static inline int inet_opt(outlet_t *ol, int opt) {
+	uv_os_fd_t fd;	// just `int` for POSIX
+	if (uv_fileno((uv_handle_t *)ol->tcp, &fd)) {
+		debug("%s: failed to get fd\n", __FUNCTION__);
+		return -1;
+	}
+
+	int optval;
+	socklen_t optlen;
+	getsockopt(fd, SOL_SOCKET, opt, &optval, &optlen);
+	debug("%s(opt=%d) = %d\n", __FUNCTION__, opt, optval);
+	return optval;
+}
+
+static inline int inet_set(outlet_t *ol, int opt, int val) {
+	int fd;
+	if (uv_fileno((uv_handle_t *)ol->tcp, &fd)) {
+		debug("%s: failed to get fd\n", __FUNCTION__);
+		return -1;
+	}
+
+	int optval = val;
+	socklen_t optlen = sizeof(optval);
+	debug("%s(opt=%d, val=%d)\n", __FUNCTION__, opt, val);
+	return setsockopt(fd, SOL_SOCKET, opt, &optval, optlen);
+}
+
+# define GET_INET_OPT(opt) \
+	(inet_opt(ol, (opt)))
+
+# define SET_SO_OPT(opts, opt, val) \
+	(inet_set(ol, (opt), (val)))
+
+#endif
+
 int inet_set_opt(outlet_t *ol, int opt, uint32_t val)
 {
+#ifdef LING_WITH_LWIP
 	assert(ol->ip != 0);
 	uint8_t *opts = &ol->ip->so_options;
+#endif
 
 	switch (opt)
 	{
@@ -144,6 +218,10 @@ int inet_set_opt(outlet_t *ol, int opt, uint32_t val)
 		ol->send_timeout = val;
 		break;
 
+	case INET_LOPT_TCP_SEND_TIMEOUT_CLOSE:
+		// ignore silently
+		break;
+
 	case INET_LOPT_TCP_HIWTRMRK:
 	case INET_LOPT_TCP_LOWTRMRK:
 	case INET_LOPT_BIT8:
@@ -154,16 +232,18 @@ int inet_set_opt(outlet_t *ol, int opt, uint32_t val)
 		break;
 
 	case INET_LOPT_PACKET_SIZE:
+#if LING_WITH_LWIP
+		if (val == 0 || val > TCP_WND)
+			val = TCP_WND;
+#endif
 		ol->packet_size = val;
 		break;
 
 	case INET_LOPT_READ_PACKETS:
 	case INET_OPT_RAW:
-	case INET_LOPT_TCP_SEND_TIMEOUT_CLOSE:
 		goto unsupported;
 
 	default:
-		assert(opt == INET_LOPT_TCP_SEND_TIMEOUT_CLOSE);
 unsupported:
 		printk("inet_set_opt: unsupported option [%d] set\n", opt);
 		return -BAD_ARG;
@@ -174,33 +254,35 @@ unsupported:
 
 int inet_get_opt(outlet_t *ol, int opt, uint32_t *val)
 {
+#if LING_WITH_LWIP
 	assert(ol->ip != 0);
 	uint8_t opts = ol->ip->so_options;
+#endif
 
 	switch (opt)
 	{
 	case INET_OPT_REUSEADDR:
-		*val = (opts & SO_REUSEADDR) != 0;
+		*val = GET_INET_OPT( SO_REUSEADDR );
 		break;
 
 	case INET_OPT_KEEPALIVE:
-		*val = (opts & SO_KEEPALIVE) != 0;
+		*val = GET_INET_OPT( SO_KEEPALIVE );
 		break;
 
 	case INET_OPT_DONTROUTE:
-		*val = (opts & SO_DONTROUTE) != 0;
+		*val = GET_INET_OPT( SO_DONTROUTE );
 		break;
 
 	case INET_OPT_LINGER:
-		*val = (opts & SO_LINGER) != 0;
+		*val = GET_INET_OPT( SO_LINGER );
 		break;
 
 	case INET_OPT_BROADCAST:
-		*val = (opts & SO_BROADCAST) != 0;
+		*val = GET_INET_OPT( SO_BROADCAST );
 		break;
 
 	case INET_OPT_OOBINLINE:
-		*val = (opts & SO_OOBINLINE) != 0;
+		*val = GET_INET_OPT( SO_OOBINLINE );
 		break;
 
 	case INET_OPT_SNDBUF:
@@ -342,9 +424,9 @@ void inet_reply(term_t oid, term_t reply_to, term_t reply)
 	if (caller == 0)
 		return;
 
-    // {inet_reply,S,Reply}
-    assert(is_immed(reply));
-    uint32_t *p = heap_alloc_N(&caller->hp, 1 +3);
+	// {inet_reply,S,Reply}
+	assert(is_immed(reply));
+	uint32_t *p = heap_alloc_N(&caller->hp, 1 +3);
 	if (p == 0)
 		goto nomem;
 	heap_set_top(&caller->hp, p +1 +3);
@@ -353,7 +435,7 @@ void inet_reply(term_t oid, term_t reply_to, term_t reply)
 	p[2] = oid;
 	p[3] = reply;
 	term_t msg = tag_tuple(p);
-    int x = scheduler_new_local_mail_N(caller, msg);
+	int x = scheduler_new_local_mail_N(caller, msg);
 	if (x < 0)
 		scheduler_signal_exit_N(caller, oid, err_to_term(x));
 
@@ -368,7 +450,7 @@ void inet_reply_error(term_t oid, term_t reply_to, term_t reason)
 	if (caller == 0)
 		return;
 
-    // {inet_reply,S,{error,Reason}}
+	// {inet_reply,S,{error,Reason}}
 	assert(is_immed(reason));
 	uint32_t *p = heap_alloc_N(&caller->hp, 1 +2 +1 +3);
 	if (p == 0)
@@ -384,7 +466,7 @@ void inet_reply_error(term_t oid, term_t reply_to, term_t reason)
 	p[2] = oid;
 	p[3] = res;
 	term_t msg = tag_tuple(p);
-    int x = scheduler_new_local_mail_N(caller, msg);
+	int x = scheduler_new_local_mail_N(caller, msg);
 	if (x < 0)
 		scheduler_signal_exit_N(caller, oid, err_to_term(x));
 
@@ -393,9 +475,10 @@ nomem:
 	scheduler_signal_exit_N(caller, oid, A_NO_MEMORY);
 }
 
+#ifdef LING_WITH_LWIP
 term_t lwip_err_to_term(err_t err)
 {
-	switch (err)
+	switch ((int)err)
 	{
 	case ERR_OK:			return A_OK;
 	case ERR_MEM:			return A_LWIP_MEM;
@@ -417,5 +500,26 @@ term_t lwip_err_to_term(err_t err)
 		return A_LWIP_IF;
 	}
 }
+
+term_t termerror(int err)
+{
+	return lwip_err_to_term(err);
+}
+#endif
+
+#if LING_WITH_LIBUV
+term_t termerror(int err)
+{
+	debug("%s(%d)\n", __FUNCTION__, err);
+	return A_ERROR; /* TODO */
+}
+
+void on_alloc(uv_handle_t *handle, size_t size, uv_buf_t *buf)
+{
+	debug("%s(%d)\n", __FUNCTION__, size);
+	buf->len = size;
+	buf->base = malloc(buf->len);
+}
+#endif
 
 //EOF

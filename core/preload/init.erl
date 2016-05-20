@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -180,11 +180,9 @@ boot(BootArgs) ->
     register(init, self()),
     process_flag(trap_exit, true),
 
-	%%
 	%% MK
-	%%
     %%start_on_load_handler_process(),
-
+	
     {Start0,Flags,Args} = parse_boot_args(BootArgs),
     Start = map(fun prepare_run_args/1, Start0),
     Flags0 = flags_to_atoms_again(Flags),
@@ -202,7 +200,7 @@ prepare_run_args({run, [M,F|Args]}) ->
     [b2a(M), b2a(F) | bs2ss(Args)].
 
 b2a(Bin) when is_binary(Bin) ->
-    list_to_atom(binary_to_list(Bin));
+    list_to_atom(b2s(Bin));
 b2a(A) when is_atom(A) ->
     A.
 
@@ -250,7 +248,7 @@ boot(Start,Flags0,Args) ->
 
 	IsNetworked = setup_networking(Flags), %%MK
 
-	%%MK: if the code should be ready to load .beam files dynamically which is
+	%%MK: if the code must be ready to load .beam files dynamically which is
 	%% the default, a few modules must be loaded not to trip the check in the
 	%% code_server.
 	case search('-nobeam',Flags) of
@@ -806,7 +804,7 @@ do_boot(Flags,Start) ->
 do_boot(Init,Flags,Start) ->
     process_flag(trap_exit,true),
     {Pgm0,Nodes,Id,Path} = prim_load_flags(Flags),
-    Root = b2s(get_flag('-root',Flags)), 
+    Root = b2s(get_flag('-root',Flags)),
     PathFls = path_flags(Flags),
     Pgm = b2s(Pgm0),
     _Pid = start_prim_loader(Init,b2a(Id),Pgm,bs2as(Nodes),
@@ -830,8 +828,8 @@ do_boot(Init,Flags,Start) ->
 
 	%%MK: wait for network to configure
 	receive start_em -> ok end,
-
 	%%MK
+
 	Secrets = get_flag_list('-secret',Flags,[]),
 	set_secrets(Secrets),
 	MntFlags = mount_flags(Flags),
@@ -1184,14 +1182,14 @@ start_em([]) -> ok.
 start_it([]) ->
     ok;
 start_it({eval,Bin}) ->
-    Str = binary_to_list(Bin),
+    Str = b2s(Bin),
     {ok,Ts,_} = erl_scan:string(Str),
     Ts1 = case reverse(Ts) of
 	      [{dot,_}|_] -> Ts;
 	      TsR -> reverse([{dot,1} | TsR])
 	  end,
     {ok,Expr} = erl_parse:parse_exprs(Ts1),
-    erl_eval:exprs(Expr, erl_eval:new_bindings()),
+    {value, _Value, _Bs} = erl_eval:exprs(Expr, erl_eval:new_bindings()),
     ok;
 start_it([_|_]=MFA) ->
     Ref = make_ref(),
@@ -1214,14 +1212,12 @@ start_it([_|_]=MFA) ->
 load_mod(Mod, File) ->
     case erlang:module_loaded(Mod) of
 	false ->
-
-		case erl_prim_loader:get_file(File) of
+	    case erl_prim_loader:get_file(File) of
 		{ok,BinCode,FullName} ->
 		    load_mod_code(Mod, BinCode, FullName);
 		_ ->
 		    exit({'cannot load',Mod,get_file})
 	    end;
-
 	_ -> % Already loaded.
 	    {ok,File}
     end.

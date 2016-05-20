@@ -38,6 +38,7 @@
 #include "ling_common.h"
 
 #include "atom_defs.h"
+#include "atoms.h"
 #include "string.h"
 #include "code_base.h"
 #include "scheduler.h"
@@ -57,6 +58,7 @@ int proc_spawn_N(proc_t *new_proc, term_t m, term_t f, term_t args)
 	int x = heap_copy_terms_N(&new_proc->hp, new_regs, arity);
 	if (x < 0)
 		return x;
+	gc_age_at_spawn(&new_proc->hp);
 
 	// save the initial call
 	new_proc->init_call_mod = m;
@@ -98,6 +100,7 @@ int proc_spawn_fun0_N(proc_t *new_proc, t_fun_t *f)
 	int x = heap_copy_terms_N(&new_proc->hp, new_proc->cap.regs, num_free);
 	if (x < 0)
 		return x;
+	gc_age_at_spawn(&new_proc->hp);
 	new_proc->cap.live = num_free;
 
 	assert(f->fe->entry != 0);
@@ -150,7 +153,15 @@ term_t proc_set_flag(proc_t *proc, term_t flag, term_t val)
 		proc->hp.full_sweep_after = n;
 		return tag_int(saved);
 	}
-	else if (flag == A_MONITOR_NODES)
+	else if (flag == A_SUPPRESS_GC)
+	{
+		// non-standard
+		if (!is_bool(val))
+			return noval;
+		int saved = proc->hp.suppress_gc;
+		proc->hp.suppress_gc = (val == A_TRUE);
+		return (saved) ?A_TRUE :A_FALSE;
+	} else if (flag == A_MONITOR_NODES)
 	{
 		//TODO: undocumented
 		return A_FALSE;
